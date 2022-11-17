@@ -88,7 +88,13 @@ fn parse_function_call(input: &[u8]) -> IResult<&[u8], (String, Vec<Expr>)> {
 
     let (input, parsed_exprs) = preceded(
         tag("("),
-        terminated(opt(separated_list1(tag(","), parse_expr)), tag(")")),
+        terminated(
+            opt(separated_list1(
+                delimited(opt(multispace0), tag(","), opt(multispace0)),
+                parse_expr,
+            )),
+            tag(")"),
+        ),
     )(input)?;
 
     Result::Ok((
@@ -105,7 +111,7 @@ fn parse_function_call(input: &[u8]) -> IResult<&[u8], (String, Vec<Expr>)> {
 }
 
 fn main() {
-    let result = parse_statement(b"SELECT foobar , barfoo(foobar)");
+    let result = parse_statement(b"SELECT foobar , barfoo(foobar , foobar)");
 
     match result {
         Ok(tuple) => {
