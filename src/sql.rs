@@ -35,6 +35,7 @@ pub enum SelectItem {
 pub enum Expr {
     Ident(String),
     FunctionCall(String, Vec<Expr>),
+    String(String),
 }
 
 pub fn parse_statement(input: &[u8]) -> IResult<&[u8], Statement> {
@@ -100,11 +101,15 @@ fn parse_expr(input: &[u8]) -> IResult<&[u8], Expr> {
     alt((
         |input| {
             let (input, (ident, parsed_exprs)) = parse_function_call(input)?;
-            Result::Ok((input, Expr::FunctionCall(ident, parsed_exprs)))
+            IResult::Ok((input, Expr::FunctionCall(ident, parsed_exprs)))
+        },
+        |input| {
+            let (input, string) = parse_string(input)?;
+            IResult::Ok((input, Expr::String(string)))
         },
         |input| {
             let (input, ident) = parse_ident(input)?;
-            Result::Ok((input, Expr::Ident(ident)))
+            IResult::Ok((input, Expr::Ident(ident)))
         },
     ))(input)
 }
@@ -152,24 +157,23 @@ fn parse_create_kinesis_stream(input: &[u8]) -> IResult<&[u8], (String, String, 
 
     let (input, relation_ident) = terminated(parse_ident, multispace1)(input)?;
 
-    let (input, kinesis_stream_name) = terminated(
-        delimited(tag("'"), take_while1(|chr| chr != '\'' as u8), tag("'")),
-        multispace1,
-    )(input)?;
+    let (input, kinesis_stream_name) = terminated(parse_string, multispace1)(input)?;
 
-    let (input, kinesis_stream_consumer_name) =
-        delimited(tag("'"), take_while1(|chr| chr != '\'' as u8), tag("'"))(input)?;
+    let (input, kinesis_stream_consumer_name) = parse_string(input)?;
 
     Result::Ok((
         input,
         (
             relation_ident,
-            std::str::from_utf8(kinesis_stream_name)
-                .unwrap()
-                .to_string(),
-            std::str::from_utf8(kinesis_stream_consumer_name)
-                .unwrap()
-                .to_string(),
+            kinesis_stream_name,
+            kinesis_stream_consumer_name,
         ),
     ))
+}
+
+fn parse_string(input: &[u8]) -> IResult<&[u8], String> {
+    let (input, bytes) =
+        delimited(tag("'"), take_while1(|chr| chr != '\'' as u8), tag("'"))(input)?;
+
+    IResult::Ok((input, std::str::from_utf8(bytes).unwrap().to_string()))
 }

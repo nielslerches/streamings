@@ -11,7 +11,7 @@ fn main() {
         relations: HashMap::new(),
     };
 
-    let (_, statement) = sql::parse_statement(b"CREATE KINESIS STREAM longboat 'longboat-kinesis-stream' 'streamings'").unwrap();
+    let (_, statement) = sql::parse_statement(b"SELECT foobar, 'barfoo'").unwrap();
 
     println!("{statement:?}");
 
