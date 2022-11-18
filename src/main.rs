@@ -1,7 +1,17 @@
+use std::collections::HashMap;
+
 mod sql;
+mod values;
+mod planner;
+mod relations;
+mod executors;
 
 fn main() {
-    let result = sql::parse_statement(b"SELECT foobar , barfoo(foobar, foobar(barfoo))");
+    let catalog = relations::Catalog {
+        relations: HashMap::new(),
+    };
+
+    let result = sql::parse_statement(b"SELECT ebid FROM pageviews");
 
     match result {
         Ok(tuple) => {

@@ -16,6 +16,7 @@ pub enum Statement {
 #[derive(Debug)]
 pub struct Query {
     pub select_items: Vec<SelectItem>,
+    pub from_ident: Option<String>,
 }
 
 #[derive(Debug)]
@@ -53,7 +54,14 @@ fn parse_query(input: &[u8]) -> IResult<&[u8], Query> {
         parse_select_item,
     )(input)?;
 
-    IResult::Ok((input, Query { select_items }))
+    let (input, from_ident) = opt(|input| {
+        let (input, _) = multispace0(input)?;
+        let (input, _) = tag_no_case("FROM")(input)?;
+        let (input, _) = multispace0(input)?;
+        parse_ident(input)
+    })(input)?;
+
+    IResult::Ok((input, Query { select_items, from_ident }))
 }
 
 fn parse_select_item(input: &[u8]) -> IResult<&[u8], SelectItem> {
