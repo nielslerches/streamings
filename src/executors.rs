@@ -9,7 +9,7 @@ pub fn execute_statement(catalog: &mut Catalog, statement: Statement) {
             execute_query(catalog.clone(), query)
         }
         Statement::CreateKinesisStream(relation_ident, kinesis_stream_name, kinesis_stream_consumer_name) => {
-            execute_create_kinesis_stream(catalog.borrow_mut(), relation_ident, kinesis_stream_name, kinesis_stream_consumer_name);
+            execute_create_kinesis_stream(catalog, relation_ident, kinesis_stream_name, kinesis_stream_consumer_name);
         }
     }
 }
