@@ -1,16 +1,23 @@
 use nom::{
     branch::alt,
-    bytes::complete::{tag, tag_no_case, take_while, take_while1},
-    character::{complete::multispace0, is_alphabetic, is_space},
+    bytes::complete::{
+        tag, tag_no_case, take_till, take_till1, take_while, take_while1, take_while_m_n,
+    },
+    character::{
+        complete::{multispace0, multispace1},
+        is_alphabetic, is_alphanumeric, is_space,
+        streaming::anychar,
+    },
     combinator::{eof, opt},
     multi::separated_list1,
     sequence::{delimited, preceded, terminated},
-    IResult,
+    AsChar, IResult,
 };
 
 #[derive(Debug)]
 pub enum Statement {
     Select(Query),
+    CreateKinesisStream(String, String, String),
 }
 
 #[derive(Debug)]
@@ -31,23 +38,36 @@ pub enum Expr {
 }
 
 pub fn parse_statement(input: &[u8]) -> IResult<&[u8], Statement> {
-    let (input, statement) = alt((parse_select_statement,))(input)?;
+    let (input, statement) = alt((
+        |input| {
+            let (input, (relation_ident, kinesis_stream_name, kinesis_stream_consumer_name)) =
+                parse_create_kinesis_stream(input)?;
+
+            Result::Ok((
+                input,
+                Statement::CreateKinesisStream(
+                    relation_ident,
+                    kinesis_stream_name,
+                    kinesis_stream_consumer_name,
+                ),
+            ))
+        },
+        |input| {
+            let (input, query) = parse_query(input)?;
+
+            Result::Ok((input, Statement::Select(query)))
+        },
+    ))(input)?;
 
     let (input, _) = eof(input)?;
 
     return IResult::Ok((input, statement));
 }
 
-fn parse_select_statement(input: &[u8]) -> IResult<&[u8], Statement> {
-    let (input, query) = parse_query(input)?;
-
-    return IResult::Ok((input, Statement::Select(query)));
-}
-
 fn parse_query(input: &[u8]) -> IResult<&[u8], Query> {
     let (input, _) = tag_no_case("SELECT")(input)?;
 
-    let (input, _) = take_while(is_space)(input)?;
+    let (input, _) = multispace0(input)?;
 
     let (input, select_items) = separated_list1(
         delimited(multispace0, tag(","), multispace0),
@@ -61,7 +81,13 @@ fn parse_query(input: &[u8]) -> IResult<&[u8], Query> {
         parse_ident(input)
     })(input)?;
 
-    IResult::Ok((input, Query { select_items, from_ident }))
+    IResult::Ok((
+        input,
+        Query {
+            select_items,
+            from_ident,
+        },
+    ))
 }
 
 fn parse_select_item(input: &[u8]) -> IResult<&[u8], SelectItem> {
@@ -112,6 +138,38 @@ fn parse_function_call(input: &[u8]) -> IResult<&[u8], (String, Vec<Expr>)> {
             } else {
                 vec![]
             },
+        ),
+    ))
+}
+
+fn parse_create_kinesis_stream(input: &[u8]) -> IResult<&[u8], (String, String, String)> {
+    let (input, _) = tag_no_case("CREATE")(input)?;
+    let (input, _) = multispace1(input)?;
+    let (input, _) = tag_no_case("KINESIS")(input)?;
+    let (input, _) = multispace1(input)?;
+    let (input, _) = tag_no_case("STREAM")(input)?;
+    let (input, _) = multispace1(input)?;
+
+    let (input, relation_ident) = terminated(parse_ident, multispace1)(input)?;
+
+    let (input, kinesis_stream_name) = terminated(
+        delimited(tag("'"), take_while1(|chr| chr != '\'' as u8), tag("'")),
+        multispace1,
+    )(input)?;
+
+    let (input, kinesis_stream_consumer_name) =
+        delimited(tag("'"), take_while1(|chr| chr != '\'' as u8), tag("'"))(input)?;
+
+    Result::Ok((
+        input,
+        (
+            relation_ident,
+            std::str::from_utf8(kinesis_stream_name)
+                .unwrap()
+                .to_string(),
+            std::str::from_utf8(kinesis_stream_consumer_name)
+                .unwrap()
+                .to_string(),
         ),
     ))
 }
