@@ -22,6 +22,7 @@ async fn main() {
 
     let kinesis_stream_consumer_name = arguments.pop().unwrap();
     let kinesis_stream_name = arguments.pop().unwrap();
+    let input = arguments.pop().unwrap();
 
     let (_, statement) =
         sql::parse_statement(format!("CREATE KINESIS STREAM longboat '{kinesis_stream_name}' '{kinesis_stream_consumer_name}'").as_bytes()).unwrap();
@@ -30,7 +31,7 @@ async fn main() {
 
     executors::execute_statement(catalog, &kinesis_client, statement).await;
 
-    let (_, statement) = sql::parse_statement(b"SELECT ebid FROM longboat").unwrap();
+    let (_, statement) = sql::parse_statement(input.as_bytes()).unwrap();
 
     executors::execute_statement(catalog, &kinesis_client, statement).await;
 

@@ -1,17 +1,14 @@
 use nom::{
     branch::alt,
-    bytes::complete::{
-        tag, tag_no_case, take_till, take_till1, take_while, take_while1, take_while_m_n,
-    },
+    bytes::complete::{tag, tag_no_case, take_while1},
     character::{
         complete::{multispace0, multispace1},
-        is_alphabetic, is_alphanumeric, is_space,
-        streaming::anychar,
+        is_alphabetic,
     },
     combinator::{eof, opt},
     multi::separated_list1,
     sequence::{delimited, preceded, terminated},
-    AsChar, IResult,
+    IResult,
 };
 
 #[derive(Debug)]
@@ -115,7 +112,7 @@ fn parse_expr(input: &[u8]) -> IResult<&[u8], Expr> {
 }
 
 fn parse_ident(input: &[u8]) -> IResult<&[u8], String> {
-    let (input, ident) = take_while1(is_alphabetic)(input)?;
+    let (input, ident) = take_while1(|ch| is_alphabetic(ch) || ch == '_' as u8 )(input)?;
 
     return IResult::Ok((input, std::str::from_utf8(ident).unwrap().to_string()));
 }

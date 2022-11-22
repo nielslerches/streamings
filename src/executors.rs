@@ -1,7 +1,5 @@
-use std::{default, sync::Arc};
-
+use futures_util::stream::StreamExt;
 use nom::AsBytes;
-use rusoto_core::Region;
 use rusoto_kinesis::{
     DescribeStreamConsumerInput, DescribeStreamInput, Kinesis, KinesisClient,
     SubscribeToShardEventStreamItem,
@@ -92,42 +90,53 @@ async fn execute_query(catalog: &Catalog, kinesis_client: &KinesisClient, query:
                     );
                 }
 
-                match kinesis_client
-                    .subscribe_to_shard(rusoto_kinesis::SubscribeToShardInput {
-                        consumer_arn: kinesis_stream.kinesis_stream_consumer_arn.clone(),
-                        shard_id: shard_ids.first().unwrap().clone(),
-                        starting_position: rusoto_kinesis::StartingPosition {
-                            sequence_number: None,
-                            timestamp: None,
-                            type_: "TRIM_HORIZON".to_string(),
-                        },
-                    })
-                    .await
-                {
-                    Ok(subscribe_to_shard_output) => {
-                        let mut event_stream = subscribe_to_shard_output.event_stream;
+                let mut event_streams = Vec::new();
 
-                        use futures_util::stream::StreamExt;
-                        while let Some(event_stream_item) = event_stream.next().await {
-                            if let SubscribeToShardEventStreamItem::SubscribeToShardEvent(
+                for shard_id in shard_ids.as_slice() {
+                    let subscribe_to_shard_output = kinesis_client
+                        .subscribe_to_shard(rusoto_kinesis::SubscribeToShardInput {
+                            consumer_arn: kinesis_stream.kinesis_stream_consumer_arn.clone(),
+                            shard_id: shard_id.to_string(),
+                            starting_position: rusoto_kinesis::StartingPosition {
+                                sequence_number: None,
+                                timestamp: None,
+                                type_: "TRIM_HORIZON".to_string(),
+                            },
+                        })
+                        .await
+                        .unwrap();
+
+                    event_streams.push(subscribe_to_shard_output.event_stream);
+                }
+
+                use futures_util::stream::select_all::select_all;
+
+                let mut consolidated_event_stream = select_all(event_streams);
+
+                while let Some(event_stream_item) = consolidated_event_stream.next().await {
+                    if let Ok(subscribe_to_shard_event_stream_item) = event_stream_item {
+                        match subscribe_to_shard_event_stream_item {
+                            SubscribeToShardEventStreamItem::SubscribeToShardEvent(
                                 subscribe_to_shard_event,
-                            ) = event_stream_item.unwrap()
-                            {
+                            ) => {
                                 for record in subscribe_to_shard_event.records.iter() {
-                                    use serde_json;
-
-                                    if let Ok(dto) = serde_json::from_slice::<
+                                    if let Ok(input) = serde_json::from_slice::<
                                         serde_json::Map<String, serde_json::Value>,
                                     >(
                                         record.data.as_bytes()
                                     ) {
+                                        let mut output = serde_json::Map::new();
+
                                         for select_item in query.select_items.iter() {
                                             match select_item {
                                                 SelectItem::Expr(expr) => match expr {
                                                     Expr::Ident(ident) => {
-                                                        let value = dto.get(ident);
-
-                                                        println!("{value:?}")
+                                                        if let Some(value) = input.get(ident) {
+                                                            output.insert(
+                                                                ident.to_string(),
+                                                                value.clone(),
+                                                            );
+                                                        }
                                                     }
                                                     _ => {
                                                         unimplemented!()
@@ -135,15 +144,16 @@ async fn execute_query(catalog: &Catalog, kinesis_client: &KinesisClient, query:
                                                 },
                                             }
                                         }
+
+                                        let output_json = serde_json::to_string(&output).unwrap();
+                                        println!("{output_json}");
                                     } else {
                                         continue;
                                     }
                                 }
                             }
+                            _ => {}
                         }
-                    }
-                    Err(err) => {
-                        println!("{err}")
                     }
                 }
             } else {
