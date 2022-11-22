@@ -4,19 +4,19 @@ use rusoto_core::Region;
 use rusoto_kinesis::KinesisClient;
 
 mod executors;
-mod relations;
+mod definitions;
 mod sql;
 
 #[tokio::main]
 async fn main() {
-    let catalog = &mut relations::Catalog {
+    let catalog = &mut definitions::Catalog {
         relations: HashMap::new(),
         functions: HashMap::new(),
     };
 
     catalog.functions.insert(
         "lower".to_string(),
-        relations::FunctionDefinition::NativeFunction(|args| {
+        definitions::FunctionDefinition::NativeFunction(|args| {
             let value = args.first().expect("lower() needs to be called with 1 argument");
 
             match value {

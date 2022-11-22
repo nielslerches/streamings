@@ -6,7 +6,7 @@ use rusoto_kinesis::{
 };
 
 use crate::{
-    relations::{self, Catalog, FunctionDefinition},
+    definitions::{self, Catalog, FunctionDefinition},
     sql::{Expr, Query, SelectItem, Statement},
 };
 
@@ -38,7 +38,7 @@ async fn execute_query(catalog: &Catalog, kinesis_client: &KinesisClient, query:
     if let Some(from_ident) = query.from_ident {
         if let Some(relation_definition) = catalog.relations.get(&from_ident) {
             match relation_definition {
-                relations::RelationDefinition::KinesisStream(kinesis_stream) => {
+                definitions::RelationDefinition::KinesisStream(kinesis_stream) => {
                     let mut shard_ids = Vec::new();
 
                     let next_token = None;
@@ -251,7 +251,7 @@ async fn execute_create_kinesis_stream(
         .unwrap()
         .consumer_description;
 
-    let kinesis_stream = relations::KinesisStream {
+    let kinesis_stream = definitions::KinesisStream {
         kinesis_stream_name: kinesis_stream_name.clone(),
         kinesis_stream_arn: consumer_description.stream_arn,
         kinesis_stream_consumer_arn: consumer_description.consumer_arn,
@@ -259,6 +259,6 @@ async fn execute_create_kinesis_stream(
 
     catalog.relations.insert(
         relation_ident,
-        relations::RelationDefinition::KinesisStream(kinesis_stream),
+        definitions::RelationDefinition::KinesisStream(kinesis_stream),
     );
 }
