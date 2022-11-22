@@ -25,6 +25,7 @@ pub struct Query {
 
 #[derive(Debug)]
 pub enum SelectItem {
+    NamedExpr(Expr, String),
     Expr(Expr),
 }
 
@@ -89,9 +90,22 @@ fn parse_query(input: &[u8]) -> IResult<&[u8], Query> {
 }
 
 fn parse_select_item(input: &[u8]) -> IResult<&[u8], SelectItem> {
-    let (input, expr) = parse_expr(input)?;
+    alt((
+        |input| {
+            let (input, expr) = parse_expr(input)?;
+            let (input, _) = multispace1(input)?;
+            let (input, _) = tag_no_case("AS")(input)?;
+            let (input, _) = multispace1(input)?;
+            let (input, ident) = parse_ident(input)?;
 
-    IResult::Ok((input, SelectItem::Expr(expr)))
+            IResult::Ok((input, SelectItem::NamedExpr(expr, ident)))
+        },
+        |input| {
+            let (input, expr) = parse_expr(input)?;
+
+            IResult::Ok((input, SelectItem::Expr(expr)))
+        },
+    ))(input)
 }
 
 fn parse_expr(input: &[u8]) -> IResult<&[u8], Expr> {
@@ -112,7 +126,7 @@ fn parse_expr(input: &[u8]) -> IResult<&[u8], Expr> {
 }
 
 fn parse_ident(input: &[u8]) -> IResult<&[u8], String> {
-    let (input, ident) = take_while1(|ch| is_alphabetic(ch) || ch == '_' as u8 )(input)?;
+    let (input, ident) = take_while1(|ch| is_alphabetic(ch) || ch == '_' as u8)(input)?;
 
     return IResult::Ok((input, std::str::from_utf8(ident).unwrap().to_string()));
 }

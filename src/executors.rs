@@ -126,13 +126,19 @@ async fn execute_query(catalog: &Catalog, kinesis_client: &KinesisClient, query:
                                                 query.select_items.iter().enumerate()
                                             {
                                                 match select_item {
+                                                    SelectItem::NamedExpr(expr, alias) => {
+                                                        output.insert(
+                                                            alias.to_string(),
+                                                            evaluate_expr(catalog, &input, expr)
+                                                        );
+                                                    }
                                                     SelectItem::Expr(expr) => match expr {
                                                         Expr::Ident(ident) => {
                                                             output.insert(
                                                                 ident.to_string(),
                                                                 evaluate_expr(
                                                                     catalog,
-                                                                    input.clone(),
+                                                                    &input,
                                                                     expr,
                                                                 ),
                                                             );
@@ -142,7 +148,7 @@ async fn execute_query(catalog: &Catalog, kinesis_client: &KinesisClient, query:
                                                                 function_name.to_string(),
                                                                 evaluate_expr(
                                                                     catalog,
-                                                                    input.clone(),
+                                                                    &input,
                                                                     expr,
                                                                 ),
                                                             );
@@ -182,7 +188,7 @@ async fn execute_query(catalog: &Catalog, kinesis_client: &KinesisClient, query:
 
 fn evaluate_expr(
     catalog: &Catalog,
-    record: serde_json::Map<String, serde_json::Value>,
+    record: &serde_json::Map<String, serde_json::Value>,
     expr: &Expr,
 ) -> serde_json::Value {
     match expr {
@@ -191,7 +197,7 @@ fn evaluate_expr(
                 Some(function_definition) => {
                     let function_call_args = function_call_exprs
                         .iter()
-                        .map(|expr| evaluate_expr(catalog, record.clone(), expr))
+                        .map(|expr| evaluate_expr(catalog, record, expr))
                         .collect::<Vec<serde_json::Value>>();
 
                     match function_definition {
