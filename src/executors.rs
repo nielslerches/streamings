@@ -47,7 +47,7 @@ async fn execute_query(catalog: &Catalog, kinesis_client: &KinesisClient, query:
                         .list_shards(rusoto_kinesis::ListShardsInput {
                             exclusive_start_shard_id: None,
                             max_results: None,
-                            next_token: next_token,
+                            next_token,
                             shard_filter: None,
                             stream_creation_timestamp: None,
                             stream_name: Some(kinesis_stream.kinesis_stream_name.clone()),
@@ -129,7 +129,7 @@ async fn execute_query(catalog: &Catalog, kinesis_client: &KinesisClient, query:
                                                     SelectItem::NamedExpr(expr, alias) => {
                                                         output.insert(
                                                             alias.to_string(),
-                                                            evaluate_expr(catalog, &input, expr)
+                                                            evaluate_expr(catalog, &input, expr),
                                                         );
                                                     }
                                                     SelectItem::Expr(expr) => match expr {
@@ -137,9 +137,7 @@ async fn execute_query(catalog: &Catalog, kinesis_client: &KinesisClient, query:
                                                             output.insert(
                                                                 ident.to_string(),
                                                                 evaluate_expr(
-                                                                    catalog,
-                                                                    &input,
-                                                                    expr,
+                                                                    catalog, &input, expr,
                                                                 ),
                                                             );
                                                         }
@@ -147,9 +145,7 @@ async fn execute_query(catalog: &Catalog, kinesis_client: &KinesisClient, query:
                                                             output.insert(
                                                                 function_name.to_string(),
                                                                 evaluate_expr(
-                                                                    catalog,
-                                                                    &input,
-                                                                    expr,
+                                                                    catalog, &input, expr,
                                                                 ),
                                                             );
                                                         }

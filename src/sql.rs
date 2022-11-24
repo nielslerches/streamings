@@ -11,25 +11,25 @@ use nom::{
     IResult,
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Statement {
     Select(Query),
     CreateKinesisStream(String, String, String),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Query {
     pub select_items: Vec<SelectItem>,
     pub from_ident: Option<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum SelectItem {
     NamedExpr(Expr, String),
     Expr(Expr),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Expr {
     Ident(String),
     FunctionCall(String, Vec<Expr>),
