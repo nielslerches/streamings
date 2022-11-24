@@ -21,6 +21,7 @@ pub enum Statement {
 pub struct Query {
     pub select_items: Vec<SelectItem>,
     pub from_ident: Option<String>,
+    pub where_condition: Option<Expr>,
 }
 
 #[derive(Debug, Clone)]
@@ -80,11 +81,19 @@ fn parse_query(input: &[u8]) -> IResult<&[u8], Query> {
         parse_ident(input)
     })(input)?;
 
+    let (input, where_condition) = opt(|input| {
+        let (input, _) = multispace0(input)?;
+        let (input, _) = tag_no_case("WHERE")(input)?;
+        let (input, _) = multispace0(input)?;
+        parse_expr(input)
+    })(input)?;
+
     IResult::Ok((
         input,
         Query {
             select_items,
             from_ident,
+            where_condition,
         },
     ))
 }
@@ -145,7 +154,7 @@ fn parse_function_call(input: &[u8]) -> IResult<&[u8], (String, Vec<Expr>)> {
         ),
     )(input)?;
 
-    Result::Ok((
+    IResult::Ok((
         input,
         (
             ident,
@@ -172,7 +181,7 @@ fn parse_create_kinesis_stream(input: &[u8]) -> IResult<&[u8], (String, String, 
 
     let (input, kinesis_stream_consumer_name) = parse_string(input)?;
 
-    Result::Ok((
+    IResult::Ok((
         input,
         (
             relation_ident,
