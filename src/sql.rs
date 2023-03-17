@@ -6,7 +6,7 @@ use nom::{
         is_alphabetic,
     },
     combinator::{eof, opt},
-    multi::separated_list1,
+    multi::{separated_list1, many1},
     sequence::{delimited, preceded, terminated},
     IResult,
 };
@@ -37,11 +37,22 @@ pub enum Expr {
     String(String),
 }
 
-pub fn parse_statement(input: &[u8]) -> IResult<&[u8], Statement> {
+pub fn parse_statements(input: &str) -> IResult<&str, Vec<Statement>> {
+    let (input, statements) = many1(parse_statement)(input)?;
+
+    let (input, _) = eof(input)?;
+
+    IResult::Ok((
+        input,
+        statements
+    ))
+}
+
+pub fn parse_statement(input: &str) -> IResult<&str, Statement> {
     let (input, statement) = alt((
         |input| {
             let (input, (relation_ident, kinesis_stream_name, kinesis_stream_consumer_name)) =
-                parse_create_kinesis_stream(input)?;
+                terminated(parse_create_kinesis_stream, parse_statement_terminator)(input)?;
 
             Result::Ok((
                 input,
@@ -53,18 +64,16 @@ pub fn parse_statement(input: &[u8]) -> IResult<&[u8], Statement> {
             ))
         },
         |input| {
-            let (input, query) = parse_query(input)?;
+            let (input, query) = terminated(parse_query, parse_statement_terminator)(input)?;
 
             Result::Ok((input, Statement::Select(query)))
         },
     ))(input)?;
 
-    let (input, _) = eof(input)?;
-
     return IResult::Ok((input, statement));
 }
 
-fn parse_query(input: &[u8]) -> IResult<&[u8], Query> {
+fn parse_query(input: &str) -> IResult<&str, Query> {
     let (input, _) = tag_no_case("SELECT")(input)?;
 
     let (input, _) = multispace0(input)?;
@@ -98,7 +107,7 @@ fn parse_query(input: &[u8]) -> IResult<&[u8], Query> {
     ))
 }
 
-fn parse_select_item(input: &[u8]) -> IResult<&[u8], SelectItem> {
+fn parse_select_item(input: &str) -> IResult<&str, SelectItem> {
     alt((
         |input| {
             let (input, expr) = parse_expr(input)?;
@@ -117,7 +126,7 @@ fn parse_select_item(input: &[u8]) -> IResult<&[u8], SelectItem> {
     ))(input)
 }
 
-fn parse_expr(input: &[u8]) -> IResult<&[u8], Expr> {
+fn parse_expr(input: &str) -> IResult<&str, Expr> {
     alt((
         |input| {
             let (input, (ident, parsed_exprs)) = parse_function_call(input)?;
@@ -134,13 +143,13 @@ fn parse_expr(input: &[u8]) -> IResult<&[u8], Expr> {
     ))(input)
 }
 
-fn parse_ident(input: &[u8]) -> IResult<&[u8], String> {
-    let (input, ident) = take_while1(|ch| is_alphabetic(ch) || ch == '_' as u8)(input)?;
+fn parse_ident(input: &str) -> IResult<&str, String> {
+    let (input, ident) = take_while1(|ch: char| is_alphabetic(ch as u8) || ch == '_')(input)?;
 
-    return IResult::Ok((input, std::str::from_utf8(ident).unwrap().to_string()));
+    return IResult::Ok((input, ident.to_string()));
 }
 
-fn parse_function_call(input: &[u8]) -> IResult<&[u8], (String, Vec<Expr>)> {
+fn parse_function_call(input: &str) -> IResult<&str, (String, Vec<Expr>)> {
     let (input, ident) = parse_ident(input)?;
 
     let (input, parsed_exprs) = preceded(
@@ -167,7 +176,7 @@ fn parse_function_call(input: &[u8]) -> IResult<&[u8], (String, Vec<Expr>)> {
     ))
 }
 
-fn parse_create_kinesis_stream(input: &[u8]) -> IResult<&[u8], (String, String, String)> {
+fn parse_create_kinesis_stream(input: &str) -> IResult<&str, (String, String, String)> {
     let (input, _) = tag_no_case("CREATE")(input)?;
     let (input, _) = multispace1(input)?;
     let (input, _) = tag_no_case("KINESIS")(input)?;
@@ -191,9 +200,20 @@ fn parse_create_kinesis_stream(input: &[u8]) -> IResult<&[u8], (String, String, 
     ))
 }
 
-fn parse_string(input: &[u8]) -> IResult<&[u8], String> {
-    let (input, bytes) =
-        delimited(tag("'"), take_while1(|chr| chr != '\'' as u8), tag("'"))(input)?;
+fn parse_string(input: &str) -> IResult<&str, String> {
+    let (input, string) =
+        delimited(tag("'"), take_while1(|chr| chr != '\''), tag("'"))(input)?;
 
-    IResult::Ok((input, std::str::from_utf8(bytes).unwrap().to_string()))
+    IResult::Ok((input, string.to_string()))
+}
+
+fn parse_statement_terminator(input: &str) -> IResult<&str, ()> {
+    let (input, _) = multispace0(input)?;
+    let (input, _) = tag(";")(input)?;
+    let (input, _) = multispace0(input)?;
+
+    IResult::Ok((
+        input,
+        ()
+    ))
 }
