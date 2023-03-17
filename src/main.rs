@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use rusoto_core::Region;
 use rusoto_kinesis::KinesisClient;
 
-mod executors;
 mod definitions;
+mod executors;
 mod sql;
 
 #[tokio::main]
@@ -17,12 +17,12 @@ async fn main() {
     catalog.functions.insert(
         "lower".to_string(),
         definitions::FunctionDefinition::NativeFunction(|args| {
-            let value = args.first().expect("lower() needs to be called with 1 argument");
+            let value = args
+                .first()
+                .expect("lower() needs to be called with 1 argument");
 
             match value {
-                serde_json::Value::String(s) => {
-                    serde_json::Value::String(s.to_lowercase())
-                }
+                serde_json::Value::String(s) => serde_json::Value::String(s.to_lowercase()),
                 _ => {
                     println!("lower() argument needs to be a String");
                     serde_json::Value::String("".to_string())

@@ -6,7 +6,7 @@ use nom::{
         is_alphabetic,
     },
     combinator::{eof, opt},
-    multi::{separated_list1, many1},
+    multi::{many1, separated_list1},
     sequence::{delimited, preceded, terminated},
     IResult,
 };
@@ -42,10 +42,7 @@ pub fn parse_statements(input: &str) -> IResult<&str, Vec<Statement>> {
 
     let (input, _) = eof(input)?;
 
-    IResult::Ok((
-        input,
-        statements
-    ))
+    IResult::Ok((input, statements))
 }
 
 pub fn parse_statement(input: &str) -> IResult<&str, Statement> {
@@ -201,8 +198,7 @@ fn parse_create_kinesis_stream(input: &str) -> IResult<&str, (String, String, St
 }
 
 fn parse_string(input: &str) -> IResult<&str, String> {
-    let (input, string) =
-        delimited(tag("'"), take_while1(|chr| chr != '\''), tag("'"))(input)?;
+    let (input, string) = delimited(tag("'"), take_while1(|chr| chr != '\''), tag("'"))(input)?;
 
     IResult::Ok((input, string.to_string()))
 }
@@ -212,8 +208,5 @@ fn parse_statement_terminator(input: &str) -> IResult<&str, ()> {
     let (input, _) = tag(";")(input)?;
     let (input, _) = multispace0(input)?;
 
-    IResult::Ok((
-        input,
-        ()
-    ))
+    IResult::Ok((input, ()))
 }

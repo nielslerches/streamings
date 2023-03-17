@@ -122,12 +122,20 @@ async fn execute_query(catalog: &Catalog, kinesis_client: &KinesisClient, query:
                                         ) {
                                             if let Some(expr) = &query.where_condition {
                                                 if !match evaluate_expr(catalog, &input, expr) {
-                                                    serde_json::Value::Array(value) => value.len() > 0,
+                                                    serde_json::Value::Array(value) => {
+                                                        value.len() > 0
+                                                    }
                                                     serde_json::Value::Bool(value) => value,
                                                     serde_json::Value::Null => false,
-                                                    serde_json::Value::Number(value) => value.as_f64().unwrap() != 0.0,
-                                                    serde_json::Value::Object(value) => value.len() > 0,
-                                                    serde_json::Value::String(value) => value.len() > 0,
+                                                    serde_json::Value::Number(value) => {
+                                                        value.as_f64().unwrap() != 0.0
+                                                    }
+                                                    serde_json::Value::Object(value) => {
+                                                        value.len() > 0
+                                                    }
+                                                    serde_json::Value::String(value) => {
+                                                        value.len() > 0
+                                                    }
                                                 } {
                                                     continue;
                                                 }
