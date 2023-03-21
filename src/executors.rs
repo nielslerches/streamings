@@ -28,7 +28,7 @@ pub async fn execute_statement(
                 catalog,
                 kinesis_client,
                 relation_ident,
-                &kinesis_stream_name,
+                kinesis_stream_name,
                 kinesis_stream_consumer_name,
             )
             .await
@@ -245,14 +245,14 @@ async fn execute_create_kinesis_stream(
     catalog: &mut Catalog,
     kinesis_client: &KinesisClient,
     relation_ident: String,
-    kinesis_stream_name: &String,
+    kinesis_stream_name: String,
     kinesis_stream_consumer_name: String,
 ) {
     let stream_description = kinesis_client
         .describe_stream(DescribeStreamInput {
             exclusive_start_shard_id: None,
             limit: None,
-            stream_name: kinesis_stream_name.to_string(),
+            stream_name: kinesis_stream_name.clone(),
         })
         .await
         .unwrap()
