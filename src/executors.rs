@@ -117,9 +117,7 @@ async fn execute_query(catalog: &Catalog, kinesis_client: &KinesisClient, query:
                                     subscribe_to_shard_event,
                                 ) => {
                                     for record in subscribe_to_shard_event.records.iter() {
-                                        if let Ok(input) = serde_json::from_slice::<
-                                            serde_json::Map<String, serde_json::Value>,
-                                        >(
+                                        if let Ok(input) = serde_json::from_slice::<Record>(
                                             record.data.as_bytes()
                                         ) {
                                             if let Some(expr) = &query.where_condition {
