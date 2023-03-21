@@ -10,13 +10,15 @@ use crate::{
     sql::{Expr, Query, SelectItem, Statement},
 };
 
+type Record = serde_json::Map<String, serde_json::Value>;
+
 pub async fn execute_statement(
     catalog: &mut Catalog,
     kinesis_client: &KinesisClient,
     statement: Statement,
 ) {
     match statement {
-        Statement::Select(query) => execute_query(catalog, kinesis_client, query).await,
+        Statement::Select(query) => execute_query(catalog, kinesis_client, &query).await,
         Statement::CreateKinesisStream(
             relation_ident,
             kinesis_stream_name,
@@ -34,9 +36,9 @@ pub async fn execute_statement(
     }
 }
 
-async fn execute_query(catalog: &Catalog, kinesis_client: &KinesisClient, query: Query) {
-    if let Some(from_ident) = query.from_ident {
-        if let Some(relation_definition) = catalog.relations.get(&from_ident) {
+async fn execute_query(catalog: &Catalog, kinesis_client: &KinesisClient, query: &Query) {
+    if let Some(from_ident) = &query.from_ident {
+        if let Some(relation_definition) = catalog.relations.get(from_ident) {
             match relation_definition {
                 definitions::RelationDefinition::KinesisStream(kinesis_stream) => {
                     let mut shard_ids = Vec::new();
@@ -205,7 +207,7 @@ async fn execute_query(catalog: &Catalog, kinesis_client: &KinesisClient, query:
 
 fn evaluate_expr(
     catalog: &Catalog,
-    record: &serde_json::Map<String, serde_json::Value>,
+    record: &Record,
     expr: &Expr,
 ) -> serde_json::Value {
     match expr {
