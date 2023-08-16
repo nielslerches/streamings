@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use nom_locate::LocatedSpan;
+use nom_recursive::RecursiveInfo;
 use rusoto_core::Region;
 use rusoto_kinesis::KinesisClient;
 
@@ -39,7 +41,9 @@ async fn main() {
 
     let input = arguments.pop().unwrap();
 
-    let (_, statements) = sql::parse_statements(input.as_str()).unwrap();
+    let (_, statements) =
+        sql::parse_statements(LocatedSpan::new_extra(input.as_str(), RecursiveInfo::new()))
+            .unwrap();
 
     for statement in statements {
         executors::execute_statement(catalog, &kinesis_client, statement).await;

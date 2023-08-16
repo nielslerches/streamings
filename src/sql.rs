@@ -10,6 +10,8 @@ use nom::{
     sequence::{delimited, preceded, terminated},
     IResult,
 };
+use nom_locate::LocatedSpan;
+use nom_recursive::{recursive_parser, RecursiveInfo};
 
 #[derive(Debug, Clone)]
 pub enum Statement {
@@ -35,9 +37,21 @@ pub enum Expr {
     Ident(String),
     FunctionCall(String, Vec<Expr>),
     String(String),
+    Number(f64),
+    BinaryOperation(Box<Expr>, BinaryOperator, Box<Expr>),
 }
 
-pub fn parse_statements(input: &str) -> IResult<&str, Vec<Statement>> {
+#[derive(Debug, Clone)]
+pub enum BinaryOperator {
+    Add,
+    Sub,
+    Mul,
+    Div,
+}
+
+type Span<'a> = LocatedSpan<&'a str, RecursiveInfo>;
+
+pub fn parse_statements(input: Span) -> IResult<Span, Vec<Statement>> {
     let (input, statements) = many1(parse_statement)(input)?;
 
     let (input, _) = eof(input)?;
@@ -45,7 +59,7 @@ pub fn parse_statements(input: &str) -> IResult<&str, Vec<Statement>> {
     IResult::Ok((input, statements))
 }
 
-pub fn parse_statement(input: &str) -> IResult<&str, Statement> {
+pub fn parse_statement(input: Span) -> IResult<Span, Statement> {
     let (input, statement) = alt((
         |input| {
             let (input, (relation_ident, kinesis_stream_name, kinesis_stream_consumer_name)) =
@@ -70,7 +84,7 @@ pub fn parse_statement(input: &str) -> IResult<&str, Statement> {
     return IResult::Ok((input, statement));
 }
 
-fn parse_query(input: &str) -> IResult<&str, Query> {
+fn parse_query(input: Span) -> IResult<Span, Query> {
     let (input, _) = tag_no_case("SELECT")(input)?;
 
     let (input, _) = multispace0(input)?;
@@ -104,7 +118,7 @@ fn parse_query(input: &str) -> IResult<&str, Query> {
     ))
 }
 
-fn parse_select_item(input: &str) -> IResult<&str, SelectItem> {
+fn parse_select_item(input: Span) -> IResult<Span, SelectItem> {
     alt((
         |input| {
             let (input, expr) = parse_expr(input)?;
@@ -123,8 +137,15 @@ fn parse_select_item(input: &str) -> IResult<&str, SelectItem> {
     ))(input)
 }
 
-fn parse_expr(input: &str) -> IResult<&str, Expr> {
+fn parse_expr(input: Span) -> IResult<Span, Expr> {
     alt((
+        |input| {
+            let (input, (left_expr, binary_operator, right_expr)) = parse_binary_operation(input)?;
+            IResult::Ok((
+                input,
+                Expr::BinaryOperation(Box::new(left_expr), binary_operator, Box::new(right_expr)),
+            ))
+        },
         |input| {
             let (input, (ident, parsed_exprs)) = parse_function_call(input)?;
             IResult::Ok((input, Expr::FunctionCall(ident, parsed_exprs)))
@@ -134,19 +155,23 @@ fn parse_expr(input: &str) -> IResult<&str, Expr> {
             IResult::Ok((input, Expr::String(string)))
         },
         |input| {
+            let (input, number) = parse_number(input)?;
+            IResult::Ok((input, Expr::Number(number)))
+        },
+        |input| {
             let (input, ident) = parse_ident(input)?;
             IResult::Ok((input, Expr::Ident(ident)))
         },
     ))(input)
 }
 
-fn parse_ident(input: &str) -> IResult<&str, String> {
+fn parse_ident(input: Span) -> IResult<Span, String> {
     let (input, ident) = take_while1(|ch: char| is_alphabetic(ch as u8) || ch == '_')(input)?;
 
     return IResult::Ok((input, ident.to_string()));
 }
 
-fn parse_function_call(input: &str) -> IResult<&str, (String, Vec<Expr>)> {
+fn parse_function_call(input: Span) -> IResult<Span, (String, Vec<Expr>)> {
     let (input, ident) = parse_ident(input)?;
 
     let (input, parsed_exprs) = preceded(
@@ -173,7 +198,7 @@ fn parse_function_call(input: &str) -> IResult<&str, (String, Vec<Expr>)> {
     ))
 }
 
-fn parse_create_kinesis_stream(input: &str) -> IResult<&str, (String, String, String)> {
+fn parse_create_kinesis_stream(input: Span) -> IResult<Span, (String, String, String)> {
     let (input, _) = tag_no_case("CREATE")(input)?;
     let (input, _) = multispace1(input)?;
     let (input, _) = tag_no_case("KINESIS")(input)?;
@@ -197,13 +222,51 @@ fn parse_create_kinesis_stream(input: &str) -> IResult<&str, (String, String, St
     ))
 }
 
-fn parse_string(input: &str) -> IResult<&str, String> {
+fn parse_string(input: Span) -> IResult<Span, String> {
     let (input, string) = delimited(tag("'"), take_while1(|chr| chr != '\''), tag("'"))(input)?;
 
     IResult::Ok((input, string.to_string()))
 }
 
-fn parse_statement_terminator(input: &str) -> IResult<&str, ()> {
+fn parse_number(input: Span) -> IResult<Span, f64> {
+    let (input, digits) = take_while1(char::is_numeric)(input)?;
+
+    IResult::Ok((input, digits.parse().unwrap()))
+}
+
+#[recursive_parser]
+fn parse_binary_operation(s: Span) -> IResult<Span, (Expr, BinaryOperator, Expr)> {
+    let (s, left_expr) = parse_expr(s)?;
+    let (s, _) = multispace0(s)?;
+    let (s, binary_operator) = parse_binary_operator(s)?;
+    let (s, _) = multispace0(s)?;
+    let (s, right_expr) = parse_expr(s)?;
+
+    Ok((s, (left_expr, binary_operator, right_expr)))
+}
+
+fn parse_binary_operator(input: Span) -> IResult<Span, BinaryOperator> {
+    alt((
+        |input| {
+            let (input, _) = tag("+")(input)?;
+            IResult::Ok((input, BinaryOperator::Add))
+        },
+        |input| {
+            let (input, _) = tag("-")(input)?;
+            IResult::Ok((input, BinaryOperator::Sub))
+        },
+        |input| {
+            let (input, _) = tag("*")(input)?;
+            IResult::Ok((input, BinaryOperator::Mul))
+        },
+        |input| {
+            let (input, _) = tag("/")(input)?;
+            IResult::Ok((input, BinaryOperator::Div))
+        },
+    ))(input)
+}
+
+fn parse_statement_terminator(input: Span) -> IResult<Span, ()> {
     let (input, _) = multispace0(input)?;
     let (input, _) = tag(";")(input)?;
     let (input, _) = multispace0(input)?;

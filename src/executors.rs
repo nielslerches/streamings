@@ -4,10 +4,11 @@ use rusoto_kinesis::{
     DescribeStreamConsumerInput, DescribeStreamInput, Kinesis, KinesisClient,
     SubscribeToShardEventStreamItem,
 };
+use serde_json::Number;
 
 use crate::{
     definitions::{self, Catalog, FunctionDefinition},
-    sql::{Expr, Query, SelectItem, Statement},
+    sql::{BinaryOperator, Expr, Query, SelectItem, Statement},
 };
 
 type Record = serde_json::Map<String, serde_json::Value>;
@@ -117,9 +118,9 @@ async fn execute_query(catalog: &Catalog, kinesis_client: &KinesisClient, query:
                                     subscribe_to_shard_event,
                                 ) => {
                                     for record in subscribe_to_shard_event.records.iter() {
-                                        if let Ok(input) = serde_json::from_slice::<Record>(
-                                            record.data.as_bytes()
-                                        ) {
+                                        if let Ok(input) =
+                                            serde_json::from_slice::<Record>(record.data.as_bytes())
+                                        {
                                             if let Some(expr) = &query.where_condition {
                                                 if !match evaluate_expr(catalog, &input, expr) {
                                                     serde_json::Value::Array(value) => {
@@ -141,47 +142,11 @@ async fn execute_query(catalog: &Catalog, kinesis_client: &KinesisClient, query:
                                                 }
                                             }
 
-                                            let mut output = serde_json::Map::new();
-
-                                            for (index, select_item) in
-                                                query.select_items.iter().enumerate()
-                                            {
-                                                match select_item {
-                                                    SelectItem::NamedExpr(expr, alias) => {
-                                                        output.insert(
-                                                            alias.to_string(),
-                                                            evaluate_expr(catalog, &input, expr),
-                                                        );
-                                                    }
-                                                    SelectItem::Expr(expr) => match expr {
-                                                        Expr::Ident(ident) => {
-                                                            output.insert(
-                                                                ident.to_string(),
-                                                                evaluate_expr(
-                                                                    catalog, &input, expr,
-                                                                ),
-                                                            );
-                                                        }
-                                                        Expr::FunctionCall(function_name, _) => {
-                                                            output.insert(
-                                                                function_name.to_string(),
-                                                                evaluate_expr(
-                                                                    catalog, &input, expr,
-                                                                ),
-                                                            );
-                                                        }
-                                                        Expr::String(string) => {
-                                                            output.insert(
-                                                                format!("column{index}")
-                                                                    .to_string(),
-                                                                serde_json::Value::String(
-                                                                    string.to_string(),
-                                                                ),
-                                                            );
-                                                        }
-                                                    },
-                                                }
-                                            }
+                                            let output = evaluate_select_items(
+                                                catalog,
+                                                &input,
+                                                &query.select_items,
+                                            );
 
                                             let output_json =
                                                 serde_json::to_string(&output).unwrap();
@@ -200,14 +165,49 @@ async fn execute_query(catalog: &Catalog, kinesis_client: &KinesisClient, query:
         } else {
             println!("{from_ident} is not available in the catalog.")
         }
+    } else {
+        let output = evaluate_select_items(catalog, &Record::default(), &query.select_items);
+        let output_json = serde_json::to_string(&output).unwrap();
+        println!("{output_json}");
     }
 }
 
-fn evaluate_expr(
+fn evaluate_select_items(
     catalog: &Catalog,
-    record: &Record,
-    expr: &Expr,
-) -> serde_json::Value {
+    input: &Record,
+    select_items: &Vec<SelectItem>,
+) -> Record {
+    let mut output = serde_json::Map::new();
+
+    for (index, select_item) in select_items.iter().enumerate() {
+        match select_item {
+            SelectItem::NamedExpr(expr, alias) => {
+                output.insert(alias.to_string(), evaluate_expr(catalog, &input, expr));
+            }
+            SelectItem::Expr(expr) => match expr {
+                Expr::Ident(ident) => {
+                    output.insert(ident.to_string(), evaluate_expr(catalog, &input, expr));
+                }
+                Expr::FunctionCall(function_name, _) => {
+                    output.insert(
+                        function_name.to_string(),
+                        evaluate_expr(catalog, &input, expr),
+                    );
+                }
+                _ => {
+                    output.insert(
+                        format!("column{index}").to_string(),
+                        evaluate_expr(catalog, input, expr),
+                    );
+                }
+            },
+        }
+    }
+
+    output
+}
+
+fn evaluate_expr(catalog: &Catalog, record: &Record, expr: &Expr) -> serde_json::Value {
     match expr {
         Expr::FunctionCall(function_name, function_call_exprs) => {
             match catalog.functions.get(function_name) {
@@ -238,6 +238,26 @@ fn evaluate_expr(
             }
         }
         Expr::String(string) => serde_json::Value::String(string.to_string()),
+        Expr::Number(number) => serde_json::Value::Number(Number::from_f64(*number).unwrap()),
+        Expr::BinaryOperation(left_expr, binary_operator, right_expr) => {
+            let left = evaluate_expr(catalog, record, left_expr);
+            let right = evaluate_expr(catalog, record, right_expr);
+
+            match binary_operator {
+                &BinaryOperator::Add => {
+                    serde_json::Value::from(left.as_f64().unwrap() + right.as_f64().unwrap())
+                }
+                &BinaryOperator::Sub => {
+                    serde_json::Value::from(left.as_f64().unwrap() - right.as_f64().unwrap())
+                }
+                &BinaryOperator::Mul => {
+                    serde_json::Value::from(left.as_f64().unwrap() * right.as_f64().unwrap())
+                }
+                &BinaryOperator::Div => {
+                    serde_json::Value::from(left.as_f64().unwrap() / right.as_f64().unwrap())
+                }
+            }
+        }
     }
 }
 
