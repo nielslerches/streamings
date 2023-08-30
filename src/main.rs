@@ -8,6 +8,7 @@ use rusoto_kinesis::KinesisClient;
 mod definitions;
 mod executors;
 mod sql;
+mod planners;
 
 #[tokio::main]
 async fn main() {
@@ -33,8 +34,6 @@ async fn main() {
         }),
     );
 
-    let kinesis_client = KinesisClient::new(Region::EuWest1);
-
     use std::env::args;
 
     let mut arguments = args().collect::<Vec<String>>().clone();
@@ -43,9 +42,9 @@ async fn main() {
 
     let (_, statements) =
         sql::parse_statements(LocatedSpan::new_extra(input.as_str(), RecursiveInfo::new()))
-            .unwrap();
+            .expect("could not parse statements");
 
     for statement in statements {
-        executors::execute_statement(catalog, &kinesis_client, statement).await;
+        executors::execute_statement(catalog, statement).await;
     }
 }

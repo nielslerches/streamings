@@ -24,3 +24,5 @@ pub enum FunctionDefinition {
 }
 
 pub type NativeFunction = fn(args: Vec<serde_json::Value>) -> serde_json::Value;
+
+pub type Record = serde_json::Map<String, serde_json::Value>;

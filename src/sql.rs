@@ -17,36 +17,49 @@ use nom_recursive::{recursive_parser, RecursiveInfo};
 pub enum Statement {
     Select(Query),
     CreateKinesisStream(String, String, String),
+    Explain(Query),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct Query {
     pub select_items: Vec<SelectItem>,
-    pub from_ident: Option<String>,
+    pub from_items: Vec<FromItem>,
     pub where_condition: Option<Expr>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum SelectItem {
     NamedExpr(Expr, String),
     Expr(Expr),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum Expr {
     Ident(String),
     FunctionCall(String, Vec<Expr>),
     String(String),
-    Number(f64),
+    Number(serde_json::Number),
     BinaryOperation(Box<Expr>, BinaryOperator, Box<Expr>),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum BinaryOperator {
     Add,
     Sub,
     Mul,
     Div,
+    Gte,
+    Lte,
+    Gt,
+    Lt,
+    Eq,
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub enum FromItem {
+    SubQuery(Query),
+    Ident(String),
+    Values(Vec<Vec<Expr>>),
 }
 
 type Span<'a> = LocatedSpan<&'a str, RecursiveInfo>;
@@ -56,36 +69,47 @@ pub fn parse_statements(input: Span) -> IResult<Span, Vec<Statement>> {
 
     let (input, _) = eof(input)?;
 
-    IResult::Ok((input, statements))
+    Ok((input, statements))
 }
 
 pub fn parse_statement(input: Span) -> IResult<Span, Statement> {
-    let (input, statement) = alt((
-        |input| {
-            let (input, (relation_ident, kinesis_stream_name, kinesis_stream_consumer_name)) =
-                terminated(parse_create_kinesis_stream, parse_statement_terminator)(input)?;
+    let (input, statement) = terminated(
+        alt((
+            |input| {
+                let (input, (relation_ident, kinesis_stream_name, kinesis_stream_consumer_name)) =
+                    parse_create_kinesis_stream(input)?;
 
-            Result::Ok((
-                input,
-                Statement::CreateKinesisStream(
-                    relation_ident,
-                    kinesis_stream_name,
-                    kinesis_stream_consumer_name,
-                ),
-            ))
-        },
-        |input| {
-            let (input, query) = terminated(parse_query, parse_statement_terminator)(input)?;
+                Ok((
+                    input,
+                    Statement::CreateKinesisStream(
+                        relation_ident,
+                        kinesis_stream_name,
+                        kinesis_stream_consumer_name,
+                    ),
+                ))
+            },
+            |input| {
+                let (input, _) = tag_no_case("EXPLAIN")(input)?;
+                let (input, _) = multispace0(input)?;
+                let (input, query) = parse_query(input)?;
 
-            Result::Ok((input, Statement::Select(query)))
-        },
-    ))(input)?;
+                Ok((input, Statement::Explain(query)))
+            },
+            |input| {
+                let (input, query) = parse_query(input)?;
 
-    return IResult::Ok((input, statement));
+                Ok((input, Statement::Select(query)))
+            },
+        )),
+        parse_statement_terminator,
+    )(input)?;
+
+    return Ok((input, statement));
 }
 
-fn parse_query(input: Span) -> IResult<Span, Query> {
-    let (input, _) = tag_no_case("SELECT")(input)?;
+#[recursive_parser]
+fn parse_query(s: Span) -> IResult<Span, Query> {
+    let (input, _) = tag_no_case("SELECT")(s)?;
 
     let (input, _) = multispace0(input)?;
 
@@ -94,12 +118,9 @@ fn parse_query(input: Span) -> IResult<Span, Query> {
         parse_select_item,
     )(input)?;
 
-    let (input, from_ident) = opt(|input| {
-        let (input, _) = multispace0(input)?;
-        let (input, _) = tag_no_case("FROM")(input)?;
-        let (input, _) = multispace0(input)?;
-        parse_ident(input)
-    })(input)?;
+    let (input, _) = multispace0(input)?;
+
+    let (input, from_items) = parse_from_items(input)?;
 
     let (input, where_condition) = opt(|input| {
         let (input, _) = multispace0(input)?;
@@ -108,14 +129,50 @@ fn parse_query(input: Span) -> IResult<Span, Query> {
         parse_expr(input)
     })(input)?;
 
-    IResult::Ok((
+    Ok((
         input,
         Query {
             select_items,
-            from_ident,
+            from_items,
             where_condition,
         },
     ))
+}
+
+fn parse_from_items(input: Span) -> IResult<Span, Vec<FromItem>> {
+    let (input, _) = tag_no_case("FROM")(input)?;
+    let (input, _) = multispace1(input)?;
+    separated_list1(
+        tag(","),
+        alt((
+            delimited(
+                tag("("),
+                |input| {
+                    let (input, _) = tag_no_case("VALUES")(input)?;
+                    let (input, _) = multispace1(input)?;
+                    let (input, values) = separated_list1(tag(","), |input| {
+                        let (input, columns) =
+                            delimited(tag("("), separated_list1(tag(","), parse_expr), tag(")"))(
+                                input,
+                            )?;
+
+                        Ok((input, columns))
+                    })(input)?;
+
+                    Ok((input, FromItem::Values(values)))
+                },
+                tag(")"),
+            ),
+            |input| {
+                let (input, ident) = parse_ident(input)?;
+                Ok((input, FromItem::Ident(ident)))
+            },
+            |input| {
+                let (input, query) = delimited(tag("("), parse_query, tag(")"))(input)?;
+                Ok((input, FromItem::SubQuery(query)))
+            },
+        )),
+    )(input)
 }
 
 fn parse_select_item(input: Span) -> IResult<Span, SelectItem> {
@@ -127,12 +184,12 @@ fn parse_select_item(input: Span) -> IResult<Span, SelectItem> {
             let (input, _) = multispace1(input)?;
             let (input, ident) = parse_ident(input)?;
 
-            IResult::Ok((input, SelectItem::NamedExpr(expr, ident)))
+            Ok((input, SelectItem::NamedExpr(expr, ident)))
         },
         |input| {
             let (input, expr) = parse_expr(input)?;
 
-            IResult::Ok((input, SelectItem::Expr(expr)))
+            Ok((input, SelectItem::Expr(expr)))
         },
     ))(input)
 }
@@ -141,26 +198,26 @@ fn parse_expr(input: Span) -> IResult<Span, Expr> {
     alt((
         |input| {
             let (input, (left_expr, binary_operator, right_expr)) = parse_binary_operation(input)?;
-            IResult::Ok((
+            Ok((
                 input,
                 Expr::BinaryOperation(Box::new(left_expr), binary_operator, Box::new(right_expr)),
             ))
         },
         |input| {
             let (input, (ident, parsed_exprs)) = parse_function_call(input)?;
-            IResult::Ok((input, Expr::FunctionCall(ident, parsed_exprs)))
+            Ok((input, Expr::FunctionCall(ident, parsed_exprs)))
         },
         |input| {
             let (input, string) = parse_string(input)?;
-            IResult::Ok((input, Expr::String(string)))
+            Ok((input, Expr::String(string)))
         },
         |input| {
             let (input, number) = parse_number(input)?;
-            IResult::Ok((input, Expr::Number(number)))
+            Ok((input, Expr::Number(number)))
         },
         |input| {
             let (input, ident) = parse_ident(input)?;
-            IResult::Ok((input, Expr::Ident(ident)))
+            Ok((input, Expr::Ident(ident)))
         },
     ))(input)
 }
@@ -168,7 +225,7 @@ fn parse_expr(input: Span) -> IResult<Span, Expr> {
 fn parse_ident(input: Span) -> IResult<Span, String> {
     let (input, ident) = take_while1(|ch: char| is_alphabetic(ch as u8) || ch == '_')(input)?;
 
-    return IResult::Ok((input, ident.to_string()));
+    return Ok((input, ident.to_string()));
 }
 
 fn parse_function_call(input: Span) -> IResult<Span, (String, Vec<Expr>)> {
@@ -228,7 +285,7 @@ fn parse_string(input: Span) -> IResult<Span, String> {
     IResult::Ok((input, string.to_string()))
 }
 
-fn parse_number(input: Span) -> IResult<Span, f64> {
+fn parse_number(input: Span) -> IResult<Span, serde_json::Number> {
     let (input, digits) = take_while1(char::is_numeric)(input)?;
 
     IResult::Ok((input, digits.parse().unwrap()))
@@ -262,6 +319,26 @@ fn parse_binary_operator(input: Span) -> IResult<Span, BinaryOperator> {
         |input| {
             let (input, _) = tag("/")(input)?;
             IResult::Ok((input, BinaryOperator::Div))
+        },
+        |input| {
+            let (input, _) = tag("=")(input)?;
+            IResult::Ok((input, BinaryOperator::Eq))
+        },
+        |input| {
+            let (input, _) = tag(">=")(input)?;
+            IResult::Ok((input, BinaryOperator::Gte))
+        },
+        |input| {
+            let (input, _) = tag("<=")(input)?;
+            IResult::Ok((input, BinaryOperator::Lte))
+        },
+        |input| {
+            let (input, _) = tag(">")(input)?;
+            IResult::Ok((input, BinaryOperator::Gt))
+        },
+        |input| {
+            let (input, _) = tag("<")(input)?;
+            IResult::Ok((input, BinaryOperator::Lt))
         },
     ))(input)
 }
