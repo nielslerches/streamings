@@ -51,7 +51,11 @@ pub fn plan_query(catalog: &Catalog, query: &Query) -> Result<QueryPlan, String>
         for (i, select_item) in query.select_items.iter().enumerate() {
             let (key, value) = match select_item {
                 SelectItem::Expr(expr) => {
-                    let key = format!("column{i}");
+                    let key = match expr {
+                        Expr::Ident(ident) => ident.clone(),
+                        Expr::FunctionCall(name, _) => name.clone(),
+                        _ => format!("column{i}"),
+                    };
                     (key, expr)
                 }
                 SelectItem::NamedExpr(expr, name) => (name.clone(), expr),

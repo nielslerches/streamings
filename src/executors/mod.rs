@@ -50,7 +50,7 @@ pub async fn execute_statement<'a>(
             .await
         }
         Statement::Explain(query) => {
-            println!("{:?}", plan_query(catalog, &query).unwrap());
+            println!("{:#?}", plan_query(catalog, &query).unwrap());
         }
     }
 }
